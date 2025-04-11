@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QApplication, QMessageBox, QLabel, QGroupBox
+from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QApplication, QMessageBox, QLabel, QGroupBox, QDoubleSpinBox
 from PyQt5.QtCore import QTimer
 import MetaTrader5 as mt5
 import pandas as pd
@@ -82,9 +82,25 @@ class MainWindow(QMainWindow):
         )
         main_panel_layout.addWidget(self.ai_control_widget)
 
+        # Campo de alvo de lucro (%)
+        self.profit_target_input = QDoubleSpinBox()
+        self.profit_target_input.setRange(0.01, 5.00)
+        self.profit_target_input.setSingleStep(0.05)
+        self.profit_target_input.setValue(0.10)
+        self.profit_target_input.setSuffix(" %")
+        self.profit_target_input.setToolTip("Alvo de lucro para Auto Trade (%)")
+
+        # Layout horizontal com botão e input
+        auto_trade_row = QHBoxLayout()
+        auto_trade_row.addWidget(QLabel("🎯 Alvo Lucro"))
+        auto_trade_row.addWidget(self.profit_target_input)
+
         self.auto_trade_button = QPushButton("🤖 Auto Trade")
         self.auto_trade_button.clicked.connect(self.auto_trade)
-        main_panel_layout.addWidget(self.auto_trade_button)
+        auto_trade_row.addWidget(self.auto_trade_button)
+
+        main_panel_layout.addLayout(auto_trade_row)
+
 
 
         main_panel_box.setLayout(main_panel_layout)
@@ -159,7 +175,7 @@ class MainWindow(QMainWindow):
         self.main_panel.update_status("Analisando...")
         QApplication.processEvents()
 
-        # Sinais técnicos e de notícia
+        # Análises técnicas e de notícias
         chart_signal = analysis_controller.analyze_chart(self.current_symbol)
         news_signal = analysis_controller.analyze_news(self.current_symbol)
         combined = analysis_controller.combine_signals(chart_signal, news_signal)
@@ -170,17 +186,22 @@ class MainWindow(QMainWindow):
             if not self.ml_controller.model:
                 raise ValueError("⚠️ Modelo IA não carregado.")
 
-            # Coleta dados do ativo
-            df = mt5_service.get_symbol_data(self.current_symbol, n=150)
+            # 🔢 Obtém a quantidade de velas do painel IA
+            n_candles = self.ai_control_widget.get_candles_count()
+
+            # Coleta dados com base nessa quantidade
+            df = mt5_service.get_symbol_data(self.current_symbol, n=n_candles)
             if df is None or df.empty:
                 raise ValueError("❌ Dados ausentes para IA.")
 
-            # Executa a previsão com IA
+            # Análise com IA
             result = self.smartux_agent.analyze(self.current_symbol, df)
 
-            ai_signal = f"IA: {result['label']} ({result['confidence']}) até {result['time']}"
-            if result["label"].lower() != "hold":
+            ai_signal = f"{result['label']} ({result['confidence']}) até {result['time']}"
+            if result["predictions"] is not None and len(result["predictions"]) > 0:
                 self.ai_chart_panel.plot_predictions(df.tail(50), result["predictions"])
+            else:
+                print("[IA] Nenhuma previsão para plotar.")
 
 
         except Exception as e:
@@ -284,17 +305,23 @@ class MainWindow(QMainWindow):
 
             print(f"🤖 AutoTrade: {decision}")
 
+            # 🆕 Alvo de lucro baseado no percentual
+            profit_target_pct = self.profit_target_input.value() / 100.0  # Ex: 0.001 para 0.1%
+            current_price = df['close'].iloc[-1]
+            tp_usd = round(current_price * profit_target_pct * 100000, 2)  # Convertido para pips/USD
+            sl_usd = round(tp_usd / 2, 2)  # SL = metade do TP
+
             constants = mt5_service.get_constants()
             order_type = constants["ORDER_TYPE_BUY"] if decision["direction"] == "buy" else constants["ORDER_TYPE_SELL"]
 
             success, msg = trade_controller.place_order(
                 symbol=self.current_symbol,
                 action_type=order_type,
-                usd_volume=1.0,  # pode ajustar
-                usd_sl=decision["sl_usd"],
-                usd_tp=decision["tp_usd"],
+                usd_volume=1.0,
+                usd_sl=sl_usd,
+                usd_tp=tp_usd,
                 deviation=10,
-                comment="AutoTrade"
+                comment=f"AutoTrade ({profit_target_pct*100:.2f}% alvo)"
             )
 
             if success:
@@ -304,6 +331,7 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Erro Auto Trade", f"Erro: {e}")
+
 
 
     def closeEvent(self, event):

@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QMessageBox
+    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QMessageBox, QSpinBox
 )
 from PyQt5.QtCore import QDateTime
 
@@ -47,6 +47,14 @@ class AIControlWidget(QWidget):
 
         self.update_status_label()
 
+        # ✅ NOVO: Campo para escolher quantidade de velas
+        self.candles_spinbox = QSpinBox()
+        self.candles_spinbox.setRange(20, 1000)
+        self.candles_spinbox.setValue(100)
+        self.candles_spinbox.setSuffix(" velas")
+        self.layout.addWidget(QLabel("Velas p/ Análise IA"))
+        self.layout.addWidget(self.candles_spinbox)
+
     def handle_collect_data(self):
         symbol = self.symbol_selector.currentText()
         self.on_collect_data(symbol)
@@ -61,3 +69,6 @@ class AIControlWidget(QWidget):
     def update_status_label(self):
         status = self.get_model_status()
         self.status_label.setText(f"📊 Status: {status}")
+
+    def get_candles_count(self):
+        return self.candles_spinbox.value()

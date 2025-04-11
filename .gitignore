@@ -25,6 +25,7 @@ venv/
 # Modelos e dados
 *.pkl
 *.csv
+data/
 
 # Sistema
 .DS_Store
